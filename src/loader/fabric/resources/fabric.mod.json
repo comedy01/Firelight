@@ -1,0 +1,41 @@
+{
+	"schemaVersion": 1,
+	"id": "firelight",
+	"version": "${version}",
+	"name": "Firelight",
+	"description": "Flickering firelight. Torches, lanterns, candles, campfires and fire make the light around them dip and flare softly, each flame on its own rhythm, on the ground, walls and mobs nearby. Works with Sodium. Client-side only.",
+	"icon": {
+		"16": "assets/firelight/icon16.png",
+		"32": "assets/firelight/icon32.png",
+		"128": "assets/firelight/icon128.png"
+	},
+	"authors": [
+		"comedy01"
+	],
+	"license": "MIT",
+	"contact": {
+		"homepage": "https://github.com/comedy01/Firelight",
+		"sources": "https://github.com/comedy01/Firelight",
+		"issues": "https://github.com/comedy01/Firelight/issues"
+	},
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"dev.firelight.fabric.FirelightFabric"
+		],
+		"modmenu": [
+			"dev.firelight.fabric.FirelightModMenu"
+		]
+	},
+	"mixins": [
+		"firelight.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.15.0",
+		"minecraft": "${range}",
+		"java": ">=${java_version}"
+	},
+	"suggests": {
+		"modmenu": "*"
+	}
+}

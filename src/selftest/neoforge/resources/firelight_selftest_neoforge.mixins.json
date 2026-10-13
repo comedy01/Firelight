@@ -1,0 +1,12 @@
+{
+	"required": true,
+	"minVersion": "0.8",
+	"package": "dev.firelight.selftest.neoforge.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"client": [
+		"ClientHooksMixin"
+	],
+	"injectors": {
+		"defaultRequire": 0
+	}
+}

@@ -1,0 +1,14 @@
+modLoader="javafml"
+loaderVersion="[1,)"
+license="MIT"
+
+[[mods]]
+modId="firelight_selftest"
+version="1.0.0"
+displayName="Firelight self test"
+
+[[mixins]]
+config="firelight_selftest.mixins.json"
+
+[[mixins]]
+config="firelight_selftest_neoforge.mixins.json"

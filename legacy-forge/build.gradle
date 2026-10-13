@@ -1,0 +1,160 @@
+plugins {
+	id 'dev.architectury.loom' version '1.17.493'
+	id 'xyz.wagyourtail.jvmdowngrader' version '2.0.1'
+}
+
+def root = file('..')
+def minecraftVersion = project.findProperty('minecraft_version') ?: '1.16.5'
+
+def rootProps = new Properties()
+file("${root}/gradle.properties").withInputStream { rootProps.load(it) }
+def versionProps = new Properties()
+file("${root}/versions/forge/${minecraftVersion}.properties").withInputStream { versionProps.load(it) }
+
+def modId = rootProps.archives_base_name
+def packs = versionProps.getProperty('packs').split(',')
+def mainExcludes = versionProps.getProperty('main_excludes', '').split(',').findAll { it }
+def javaVersion = versionProps.getProperty('java').toInteger()
+def withSelftest = project.hasProperty('selftest')
+
+version = "${rootProps.mod_version}+mc${versionProps.label}"
+group = rootProps.maven_group
+
+def expansions = [java_version: javaVersion, version: project.version]
+versionProps.stringPropertyNames().each { expansions[it] = versionProps.getProperty(it) }
+def packMixins = packs.collectMany { pack ->
+	def list = file("${root}/src/compat/${pack}/mixins.txt")
+	list.exists() ? list.readLines().collect { it.trim() }.findAll { !it.isEmpty() } : []
+}
+expansions.pack_mixins = packMixins.collect { ",\n\t\t\"${it}\"" }.join("")
+def packSelftestMixins = packs.collectMany { pack ->
+	def list = file("${root}/src/compat/${pack}/selftest-mixins.txt")
+	list.exists() ? list.readLines().collect { it.trim() }.findAll { !it.isEmpty() } : []
+}
+expansions.pack_selftest_mixins = packSelftestMixins.collect { ",\n\t\t\"${it}\"" }.join("")
+
+base {
+	archivesName = "${modId}-forge"
+}
+
+java {
+	toolchain.languageVersion = JavaLanguageVersion.of(17)
+}
+
+sourceSets {
+	main {
+		java.srcDirs = ["${root}/src/main/java", "${root}/src/loader/forge/java"] + packs.collect { "${root}/src/compat/${it}/java" }
+		java.exclude { element ->
+			mainExcludes.contains(element.relativePath.pathString) && element.file.toPath().startsWith(file("${root}/src/main/java").toPath())
+		}
+		resources.srcDirs = ["${root}/src/main/resources", "${root}/src/loader/forge/resources"]
+	}
+	if (withSelftest) {
+		selftest {
+			java.srcDirs = ["${root}/src/selftest/java", "${root}/src/selftest/forge/java"] + packs.collect { "${root}/src/compat/${it}/selftest/java" }
+			resources.srcDirs = ["${root}/src/selftest/resources", "${root}/src/selftest/forge/resources"]
+			compileClasspath += main.compileClasspath + main.output
+			runtimeClasspath += main.runtimeClasspath + main.output
+		}
+	}
+}
+
+loom {
+	forge {
+		mixinConfig "${modId}.mixins.json"
+	}
+	runs {
+		remove server
+	}
+}
+
+repositories {
+	maven { url = 'https://maven.minecraftforge.net/' }
+	exclusiveContent {
+		forRepository {
+			maven { url = 'https://api.modrinth.com/maven' }
+		}
+		filter {
+			includeGroup 'maven.modrinth'
+		}
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${minecraftVersion}"
+	mappings loom.officialMojangMappings()
+	forge "net.minecraftforge:forge:${versionProps.forge_version}"
+	if (versionProps.embeddium_version) {
+		modCompileOnly("maven.modrinth:embeddium:${versionProps.embeddium_version}") {
+			transitive = false
+		}
+	}
+}
+
+processResources {
+	inputs.properties(expansions)
+	filesMatching(['META-INF/mods.toml', 'pack.mcmeta', "${modId}.mixins.json".toString()]) {
+		expand expansions
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	options.release = 17
+	options.encoding = 'UTF-8'
+}
+
+jar {
+	from("${root}/LICENSE") {
+		rename { "${it}_${base.archivesName.get()}" }
+	}
+	manifest.attributes('MixinConfigs': "${modId}.mixins.json")
+}
+
+jvmdg.downgradeTo = JavaVersion.VERSION_1_8
+downgradeJar {
+	classpath = sourceSets.main.compileClasspath
+}
+shadeDowngradedApi {
+	shadePath = "dev/${modId}/jvmdg/"
+}
+remapJar {
+	inputFile = shadeDowngradedApi.archiveFile
+	dependsOn shadeDowngradedApi
+}
+
+if (withSelftest) {
+	processSelftestResources {
+		inputs.properties(expansions)
+		filesMatching(['META-INF/mods.toml', 'pack.mcmeta', "${modId}_selftest.mixins.json".toString()]) {
+			expand expansions
+		}
+	}
+
+	def selftestJar = tasks.register('selftestJar', Jar) {
+		from sourceSets.selftest.output
+		archiveBaseName = "${modId}-selftest"
+		destinationDirectory = layout.buildDirectory.dir('devlibs')
+		manifest.attributes('MixinConfigs': "${modId}_selftest.mixins.json")
+	}
+	def selftestDowngrade = tasks.register('selftestDowngrade', xyz.wagyourtail.jvmdg.gradle.task.DowngradeJar) {
+		inputFile = selftestJar.flatMap { it.archiveFile }
+		downgradeTo = JavaVersion.VERSION_1_8
+		classpath = sourceSets.selftest.compileClasspath
+		archiveBaseName = "${modId}-selftest"
+		archiveClassifier = 'downgraded'
+		destinationDirectory = layout.buildDirectory.dir('devlibs')
+	}
+	def selftestShade = tasks.register('selftestShade', xyz.wagyourtail.jvmdg.gradle.task.ShadeJar) {
+		inputFile = selftestDowngrade.flatMap { it.archiveFile }
+		shadePath = "dev/${modId}/selftest/jvmdg/"
+		archiveBaseName = "${modId}-selftest"
+		archiveClassifier = 'shaded'
+		destinationDirectory = layout.buildDirectory.dir('devlibs')
+	}
+	def remapSelftestJar = tasks.register('remapSelftestJar', net.fabricmc.loom.task.RemapJarTask) {
+		inputFile = selftestShade.flatMap { it.archiveFile }
+		archiveBaseName = "${modId}-selftest"
+		classpath.from(sourceSets.selftest.compileClasspath)
+	}
+	tasks.named('build') { dependsOn remapSelftestJar }
+}

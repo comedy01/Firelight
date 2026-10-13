@@ -1,0 +1,8 @@
+modLoader="javafml"
+loaderVersion="[36,)"
+license="MIT"
+
+[[mods]]
+modId="firelight_selftest"
+version="1.0.0"
+displayName="Firelight self test"

@@ -1,0 +1,12 @@
+{
+	"required": true,
+	"minVersion": "0.8",
+	"package": "dev.firelight.selftest.mixin",
+	"compatibilityLevel": "JAVA_${java_version}",
+	"client": [
+		"MinecraftFrameMixin"${pack_selftest_mixins}
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

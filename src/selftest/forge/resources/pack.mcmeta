@@ -1,0 +1,6 @@
+{
+	"pack": {
+		"description": "Firelight self test resources",
+		"pack_format": ${pack_format}
+	}
+}

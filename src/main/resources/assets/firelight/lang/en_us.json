@@ -1,0 +1,21 @@
+{
+  "firelight.options.title": "Firelight",
+  "firelight.options.enabled": "Firelight",
+  "firelight.options.enabled.tooltip": "Light from torches, lanterns, candles, campfires and fire flickers softly.",
+  "firelight.options.strength": "Flicker Strength",
+  "firelight.options.strength.tooltip": "How much the light dips and flares. 100% is a gentle, natural flicker.",
+  "firelight.options.torches": "Torches",
+  "firelight.options.torches.tooltip": "Torches, soul torches, copper torches and wall torches.",
+  "firelight.options.lanterns": "Lanterns",
+  "firelight.options.lanterns.tooltip": "Lanterns and jack o'lanterns. Their glass keeps the flicker calm.",
+  "firelight.options.candles": "Candles",
+  "firelight.options.candles.tooltip": "Lit candles and candle cakes.",
+  "firelight.options.fires": "Campfires & Fire",
+  "firelight.options.fires.tooltip": "Campfires and burning fire flicker the most.",
+  "firelight.options.furnaces": "Furnaces",
+  "firelight.options.furnaces.tooltip": "Lit furnaces, smokers and blast furnaces glow with a slow pulse.",
+  "firelight.options.entities": "Mobs & Players",
+  "firelight.options.entities.tooltip": "Mobs, players and items near a flame flicker along with the ground.",
+  "firelight.options.reset": "Reset to Defaults",
+  "firelight.options.reset.tooltip": "Put every Firelight setting back to how it started."
+}
