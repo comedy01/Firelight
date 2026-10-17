@@ -25,7 +25,7 @@ abstract class GlobalSettingsUniformMixin {
             target = "Lcom/mojang/blaze3d/systems/GpuDevice;createBuffer(Ljava/util/function/Supplier;IJ)Lcom/mojang/blaze3d/buffers/GpuBuffer;"),
             index = 2)
     private long firelight$size(long size) {
-        return offset() + FlickerFrame.BYTES;
+        return firelight$offset() + FlickerFrame.BYTES;
     }
 
     @Inject(method = "update", at = @At("TAIL"))
@@ -33,13 +33,13 @@ abstract class GlobalSettingsUniformMixin {
         try {
             FlickerFrame.update(cameraPos);
             RenderSystem.getDevice().createCommandEncoder()
-                    .writeToBuffer(buffer.slice(offset(), FlickerFrame.BYTES), FlickerFrame.bytes());
+                    .writeToBuffer(buffer.slice(firelight$offset(), FlickerFrame.BYTES), FlickerFrame.bytes());
         } catch (RuntimeException e) {
             FirelightClient.fail(e);
         }
     }
 
-    private static int offset() {
+    private static int firelight$offset() {
         return (GlobalSettingsUniform.UBO_SIZE + 15) & ~15;
     }
 }
