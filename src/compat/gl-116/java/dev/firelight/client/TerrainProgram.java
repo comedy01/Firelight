@@ -169,6 +169,7 @@ public final class TerrainProgram {
         fogMode = GL20.glGetUniformLocation(id, "FirelightFogMode");
         fogRadial = GL20.glGetUniformLocation(id, "FirelightFogRadial");
         radial = GL.getCapabilities().GL_NV_fog_distance;
+        RawUniforms.forget(id);
         program = id;
         RawUniforms.shadersChanged();
         LOGGER.info("Firelight terrain shader ready");

@@ -8,6 +8,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.List;
 
@@ -21,5 +22,15 @@ abstract class GlStateManagerMixin {
     @Inject(method = "_glUseProgram", at = @At("TAIL"))
     private static void firelight$use(int program, CallbackInfo ci) {
         RawUniforms.onUse(program);
+    }
+
+    @Inject(method = "glCreateProgram", at = @At("RETURN"))
+    private static void firelight$create(CallbackInfoReturnable<Integer> cir) {
+        RawUniforms.forget(cir.getReturnValueI());
+    }
+
+    @Inject(method = {"glLinkProgram", "glDeleteProgram"}, at = @At("TAIL"))
+    private static void firelight$forget(int program, CallbackInfo ci) {
+        RawUniforms.forget(program);
     }
 }

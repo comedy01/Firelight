@@ -10,15 +10,36 @@ import net.minecraft.world.level.block.CampfireBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 
+import java.util.concurrent.ConcurrentHashMap;
+
 public final class Flames {
+    // Kind and group only depend on the block state, and every section scan asks for all 4096 of them, so each
+    // state's answer is kept: 0 for no flame, else (kind ordinal + 1) | group << 4.
+    private static final ConcurrentHashMap<BlockState, Integer> CODES = new ConcurrentHashMap<>();
+
     private Flames() {
     }
 
     public static boolean maybeFlame(BlockState state) {
-        return kind(state) != null;
+        return code(state) != 0;
     }
 
     public static FlameKind kind(BlockState state) {
+        int code = code(state);
+        return code == 0 ? null : FlameKind.byIndex((code & 15) - 1);
+    }
+
+    private static int code(BlockState state) {
+        Integer code = CODES.get(state);
+        if (code == null) {
+            FlameKind kind = computeKind(state);
+            code = kind == null ? 0 : kind.ordinal() + 1 | computeGroup(state) << 4;
+            CODES.put(state, code);
+        }
+        return code;
+    }
+
+    private static FlameKind computeKind(BlockState state) {
         Block block = state.getBlock();
         if (Torches.isTorch(block)) {
             return block == Blocks.SOUL_TORCH || block == Blocks.SOUL_WALL_TORCH ? FlameKind.SOUL : FlameKind.TORCH;
@@ -54,6 +75,11 @@ public final class Flames {
     public static final int FURNACES = 4;
 
     public static int group(BlockState state) {
+        int code = code(state);
+        return code == 0 ? computeGroup(state) : code >>> 4;
+    }
+
+    private static int computeGroup(BlockState state) {
         Block block = state.getBlock();
         if (Torches.isTorch(block)) {
             return TORCHES;

@@ -131,8 +131,9 @@ if (sodiumVersion != null && (project.hasProperty("sodium") || project.hasProper
 	def sodium = plain ? "maven.modrinth:sodium:${sodiumVersion}" : "maven.modrinth:sodium:${sodiumVersion}-${loader}"
 	dependencies {
 		if (project.hasProperty("iris") && versionProps.getProperty("iris_version") != null) {
-			def iris = "maven.modrinth:iris:${versionProps.getProperty('iris_version')}-${loader}"
-			if (fabric) {
+			def iris = versionProps.getProperty("iris_plain") == "true" ? "maven.modrinth:iris:${versionProps.getProperty('iris_version')}"
+					: "maven.modrinth:iris:${versionProps.getProperty('iris_version')}-${loader}"
+			if (fabric && !remap) {
 				def irisJar = configurations.detachedConfiguration(project.dependencies.create(iris)).tap { transitive = false }.singleFile
 				def widener = file("build/iris-dev.accesswidener")
 				widener.parentFile.mkdirs()
@@ -173,6 +174,13 @@ if (sodiumVersion != null && (project.hasProperty("sodium") || project.hasProper
 				transitive = false
 			}
 		}
+	}
+}
+
+// -Pwick=<jar> runs a Fabric 26.x client alongside a Wick build, to check the two light mods together.
+if (fabric && !remap && project.hasProperty("wick")) {
+	dependencies {
+		runtimeOnly files(project.property("wick"))
 	}
 }
 
@@ -389,6 +397,7 @@ if (forge && project.hasProperty("prodselftest")) {
 		}
 	}
 	obfuscation.reobfuscate(selftestJar, sourceSets.selftest)
+	tasks.named("reobfJar") { mustRunAfter "compileSelftestJava" }
 	processSelftestResources {
 		filesMatching("firelight_selftest.mixins.json") {
 			filter { line -> line.contains('"package"') ? line + '\n\t"refmap": "firelight_selftest.refmap.json",' : line }

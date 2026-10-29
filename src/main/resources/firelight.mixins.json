@@ -12,7 +12,9 @@
 		"sodium.GlobalUniformsMixin",
 		"sodium.ShaderLoaderLegacyMixin",
 		"sodium.ShaderLoaderMixin",
-		"sodium.UniformBufferManagerMixin"${pack_mixins}
+		"sodium.UniformBufferManagerMixin",
+		"iris.LegacyTransformPatcherMixin",
+		"iris.TransformPatcherMixin"${pack_mixins}
 	],
 	"injectors": {
 		"defaultRequire": 1

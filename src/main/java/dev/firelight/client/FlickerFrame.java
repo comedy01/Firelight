@@ -5,6 +5,7 @@ import net.minecraft.world.phys.Vec3;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.FloatBuffer;
 
 public final class FlickerFrame {
     public static final int BYTES = Flicker.FLOATS * 4;
@@ -12,9 +13,12 @@ public final class FlickerFrame {
 
     private static final float[] FRAME = new float[Flicker.FLOATS];
     private static final ByteBuffer BYTES_BUFFER = ByteBuffer.allocateDirect(BYTES).order(ByteOrder.nativeOrder());
+    private static final FloatBuffer FLOATS_BUFFER = BYTES_BUFFER.asFloatBuffer();
+    private static final float[] ZEROS = new float[Flicker.FLOATS];
     private static double cameraX;
     private static double cameraY;
     private static double cameraZ;
+    private static int sent;
 
     private FlickerFrame() {
     }
@@ -32,8 +36,11 @@ public final class FlickerFrame {
         frame[1] = strength;
         frame[3] = Flicker.MARK;
         FlameTracker.Snapshot snapshot = FlameTracker.snapshot();
-        int count = FirelightClient.active() && camera != null && !Compat.shaderPackInUse() ? snapshot.count() : 0;
+        // Under a shader pack the GPU only gets flames once the pack's terrain program has been patched; entities
+        // and block entities keep flickering either way (their light is set on the CPU).
+        int count = FirelightClient.active() && camera != null ? snapshot.count() : 0;
         frame[2] = count;
+        sent = Compat.shaderPackInUse() && !ShaderPatches.applied(ShaderPatches.IRIS_TERRAIN) ? 0 : count;
         if (camera != null) {
             cameraX = camera.x;
             cameraY = camera.y;
@@ -47,14 +54,12 @@ public final class FlickerFrame {
             frame[base + 3] = Flicker.encode(snapshot.levels()[i],
                     Flicker.value(snapshot.kinds()[i], snapshot.seeds()[i], time) * strength);
         }
-        ByteBuffer out = BYTES_BUFFER;
+        FloatBuffer out = FLOATS_BUFFER;
+        int used = 4 + sent * 4;
         out.clear();
-        for (int i = 0; i < 4 + count * 4; i++) {
-            out.putFloat(i * 4, frame[i]);
-        }
-        for (int i = 4 + count * 4; i < Flicker.FLOATS; i++) {
-            out.putFloat(i * 4, 0f);
-        }
+        out.put(frame, 0, used);
+        out.put(ZEROS, 0, Flicker.FLOATS - used);
+        out.put(2, sent);
     }
 
     public static ByteBuffer bytes() {
@@ -63,10 +68,9 @@ public final class FlickerFrame {
     }
 
     public static void writeTo(ByteBuffer target, int offset) {
-        ByteBuffer out = target.duplicate().order(ByteOrder.nativeOrder());
-        for (int i = 0; i < Flicker.FLOATS; i++) {
-            out.putFloat(offset + i * 4, BYTES_BUFFER.getFloat(i * 4));
-        }
+        ByteBuffer out = target.duplicate();
+        out.clear().position(offset);
+        out.put(BYTES_BUFFER.duplicate().clear());
     }
 
     public static int flicker(int packed, double x, double y, double z) {
@@ -80,6 +84,6 @@ public final class FlickerFrame {
     }
 
     public static int count() {
-        return (int) FRAME[2];
+        return sent;
     }
 }

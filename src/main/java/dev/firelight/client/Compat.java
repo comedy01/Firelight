@@ -1,11 +1,13 @@
 package dev.firelight.client;
 
-import java.lang.reflect.Method;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 
 public final class Compat {
     private static boolean looked;
-    private static Object irisApi;
-    private static Method shaderPackInUse;
+    private static MethodHandle shaderPackInUse;
+    private static Boolean dynamicLights;
 
     private Compat() {
     }
@@ -15,19 +17,39 @@ public final class Compat {
             looked = true;
             try {
                 Class<?> api = Class.forName("net.irisshaders.iris.api.v0.IrisApi");
-                irisApi = api.getMethod("getInstance").invoke(null);
-                shaderPackInUse = api.getMethod("isShaderPackInUse");
-            } catch (ReflectiveOperationException | LinkageError e) {
-                irisApi = null;
+                Object irisApi = api.getMethod("getInstance").invoke(null);
+                // Asked several times a frame, so the call is bound once rather than reflected every time.
+                shaderPackInUse = MethodHandles.publicLookup().unreflect(api.getMethod("isShaderPackInUse"))
+                        .bindTo(irisApi).asType(MethodType.methodType(boolean.class));
+            } catch (ReflectiveOperationException | LinkageError | RuntimeException e) {
+                shaderPackInUse = null;
             }
         }
-        if (irisApi == null) {
+        if (shaderPackInUse == null) {
             return false;
         }
         try {
-            return (Boolean) shaderPackInUse.invoke(irisApi);
-        } catch (ReflectiveOperationException | RuntimeException e) {
-            irisApi = null;
+            return (boolean) shaderPackInUse.invokeExact();
+        } catch (Throwable e) {
+            shaderPackInUse = null;
+            return false;
+        }
+    }
+
+    public static boolean dynamicLights() {
+        if (dynamicLights == null) {
+            dynamicLights = present("dev.wick.client.WickClient")
+                    || present("dev.lambdaurora.lambdynlights.LambDynLights")
+                    || present("org.thinkingstudio.ryoamiclights.RyoamicLights");
+        }
+        return dynamicLights;
+    }
+
+    private static boolean present(String name) {
+        try {
+            Class.forName(name, false, Compat.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException | LinkageError e) {
             return false;
         }
     }

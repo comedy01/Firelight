@@ -56,7 +56,8 @@ class FlickerTest {
         assertEquals(1f, Flicker.factor(frame, 20, 0, 0, 10f));
         assertEquals(1f, Flicker.factor(frame, 1, 0, 0, 0f));
         assertEquals(0.8f, Flicker.factor(frame, 1.5, 0, 0, 12.5f), 1.0E-4f);
-        assertEquals(0.9f, Flicker.factor(frame, 1.5, 0, 0, 25f), 1.0E-4f);
+        assertEquals(1f - 0.2f * (12.5f / 14.5f) * 0.75f, Flicker.factor(frame, 1.5, 0, 0, 14.5f), 1.0E-4f);
+        assertEquals(1f, Flicker.factor(frame, 1.5, 0, 0, 25f), 1.0E-4f);
     }
 
     @Test

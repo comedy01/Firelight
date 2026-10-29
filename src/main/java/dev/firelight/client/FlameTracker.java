@@ -8,6 +8,10 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.block.state.BlockState;
@@ -22,6 +26,8 @@ public final class FlameTracker {
 
     private static final Long2ObjectOpenHashMap<Entry> CACHE = new Long2ObjectOpenHashMap<>();
     private static ClientLevel cachedLevel;
+    // Only touched from the client tick, so one set of candidate buffers serves every scan.
+    private static final Candidates FOUND = new Candidates();
 
     private static volatile Snapshot snapshot = Snapshot.EMPTY;
 
@@ -73,7 +79,8 @@ public final class FlameTracker {
         int cy = (int) Math.floor(camera.y);
         int cz = (int) Math.floor(camera.z);
 
-        Candidates found = new Candidates();
+        Candidates found = FOUND;
+        found.reset();
         int minSy = Math.max(SectionPos.blockToSectionCoord(cy - RANGE), Levels.minSectionY(level));
         int maxSy = Math.min(SectionPos.blockToSectionCoord(cy + RANGE), Levels.maxSectionY(level));
         for (int sx = SectionPos.blockToSectionCoord(cx - RANGE); sx <= SectionPos.blockToSectionCoord(cx + RANGE); sx++) {
@@ -101,7 +108,48 @@ public final class FlameTracker {
                 }
             }
         }
+        if (Compat.dynamicLights()) {
+            held(level, config, cx, cy, cz, found);
+        }
         snapshot = found.nearest(Flicker.MAX_SOURCES);
+    }
+
+    // A dynamic light mod (Wick) lights the blocks around a held torch. Without a flame of its own that light would
+    // pulse with whichever placed torch is nearest, so the held torch flickers by itself, keyed to the entity.
+    private static void held(ClientLevel level, FirelightConfig config, int cx, int cy, int cz, Candidates found) {
+        for (Entity entity : level.entitiesForRendering()) {
+            if (!(entity instanceof LivingEntity)) {
+                continue;
+            }
+            LivingEntity living = (LivingEntity) entity;
+            int flame = Math.max(heldFlame(living.getMainHandItem()), heldFlame(living.getOffhandItem()));
+            if (flame == 0 || !Flames.enabled(config, flame >>> 20 & 7)) {
+                continue;
+            }
+            int x = (int) Math.floor(living.getX());
+            int y = (int) Math.floor(living.getEyeY());
+            int z = (int) Math.floor(living.getZ());
+            int dx = x - cx;
+            int dy = y - cy;
+            int dz = z - cz;
+            int distance = dx * dx + dy * dy + dz * dz;
+            if (distance <= RANGE * RANGE) {
+                found.add(x, y, z, flame, distance, Flicker.seed(entity.getId(), 0x5EED, 0));
+            }
+        }
+    }
+
+    private static int heldFlame(ItemStack stack) {
+        if (stack.isEmpty() || !(stack.getItem() instanceof BlockItem)) {
+            return 0;
+        }
+        BlockState state = ((BlockItem) stack.getItem()).getBlock().defaultBlockState();
+        FlameKind kind = Flames.kind(state);
+        int light = Math.min(15, state.getLightEmission());
+        if (kind == null || light <= 0) {
+            return 0;
+        }
+        return kind.ordinal() << 12 | light << 16 | Flames.group(state) << 20;
     }
 
     private static final class Candidates {
@@ -110,21 +158,33 @@ public final class FlameTracker {
         private int[] y = new int[64];
         private int[] z = new int[64];
         private int[] packed = new int[64];
+        private int[] seed = new int[64];
         private long[] order = new long[64];
+        private long[] sorted = new long[64];
+
+        void reset() {
+            size = 0;
+        }
 
         void add(int px, int py, int pz, int flame, int distance) {
+            add(px, py, pz, flame, distance, Flicker.seed(px, py, pz));
+        }
+
+        void add(int px, int py, int pz, int flame, int distance, int flameSeed) {
             if (size == x.length) {
                 int grown = size * 2;
                 x = Arrays.copyOf(x, grown);
                 y = Arrays.copyOf(y, grown);
                 z = Arrays.copyOf(z, grown);
                 packed = Arrays.copyOf(packed, grown);
+                seed = Arrays.copyOf(seed, grown);
                 order = Arrays.copyOf(order, grown);
             }
             x[size] = px;
             y[size] = py;
             z[size] = pz;
             packed[size] = flame;
+            seed[size] = flameSeed;
             order[size] = (long) distance << 32 | size;
             size++;
         }
@@ -133,8 +193,11 @@ public final class FlameTracker {
             if (size == 0) {
                 return Snapshot.EMPTY;
             }
-            long[] sorted = Arrays.copyOf(order, size);
-            Arrays.sort(sorted);
+            if (sorted.length < size) {
+                sorted = new long[order.length];
+            }
+            System.arraycopy(order, 0, sorted, 0, size);
+            Arrays.sort(sorted, 0, size);
             int count = Math.min(limit, size);
             int[] xs = new int[count];
             int[] ys = new int[count];
@@ -150,7 +213,7 @@ public final class FlameTracker {
                 FlameKind kind = FlameKind.byIndex(packed[c] >>> 12 & 15);
                 kinds[i] = kind;
                 levels[i] = packed[c] >>> 16 & 15;
-                seeds[i] = Flicker.seed(x[c], y[c], z[c]);
+                seeds[i] = seed[c];
             }
             return new Snapshot(count, xs, ys, zs, levels, seeds, kinds);
         }

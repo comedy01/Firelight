@@ -61,6 +61,7 @@ public final class FirelightSelfTest {
     private int seenFrames;
     private int patience;
     private double flickerRange;
+    private double flickerJitter;
     private boolean shaders;
 
     private record Step(int delay, BooleanSupplier ready, Runnable action) {
@@ -117,61 +118,138 @@ public final class FirelightSelfTest {
         }
     }
 
-    private static volatile java.io.PrintWriter filmLog;
-    private static int filmFrame;
-    private static File filmDir;
+    private static final long FILM_STEP = 1_000_000_000L / 30;
+    private static volatile Film film;
+    private static volatile float[] pan;
+
+    private static final class Film {
+        final String name;
+        final java.util.concurrent.BlockingQueue<Object[]> queue = new java.util.concurrent.ArrayBlockingQueue<>(6);
+        final Thread writer;
+        final long start = System.nanoTime();
+        Process process;
+        long next = start;
+        int written;
+        int dropped;
+        int carry;
+
+        Film(File out, String name) {
+            this.name = name;
+            writer = new Thread(() -> {
+                try {
+                    while (true) {
+                        Object[] item = queue.take();
+                        if (item.length == 0) {
+                            break;
+                        }
+                        write((byte[]) item[0], (int) item[1], (int) item[2], (int) item[3], out);
+                    }
+                    if (process != null) {
+                        process.getOutputStream().close();
+                        process.waitFor();
+                    }
+                } catch (IOException | InterruptedException e) {
+                    log("film " + name + " failed: " + e);
+                }
+            }, "Firelight film");
+            writer.start();
+        }
+
+        void write(byte[] pixels, int width, int height, int copies, File out) throws IOException {
+            if (process == null) {
+                process = new ProcessBuilder(System.getProperty("firelight.ffmpeg"), "-y", "-loglevel", "error",
+                        "-f", "rawvideo", "-pix_fmt", "rgba", "-s", width + "x" + height, "-r", "30", "-i", "-",
+                        "-vf", "crop=trunc(iw/2)*2:trunc(ih/2)*2", "-c:v", "libx264", "-crf", "16", "-preset", "fast", "-pix_fmt", "yuv420p", out.getPath())
+                        .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+            }
+            for (int i = 0; i < copies; i++) {
+                process.getOutputStream().write(pixels);
+                written++;
+            }
+        }
+    }
 
     public static void frame() {
         frames++;
-        java.io.PrintWriter log = filmLog;
-        if (log != null) {
-            int number = filmFrame++;
-            long now = System.nanoTime();
-            File file = new File(filmDir, String.format(Locale.ROOT, "f%05d.raw", number));
-            log.println(number + " " + now);
-            Captures.grab(Screens.renderTarget(Minecraft.getInstance()), downscale(Screens.renderTarget(Minecraft.getInstance())) >= 2 ? 2 : 1, image -> {
-                try {
-                    int[] pixels = Captures.abgr(image);
-                    java.nio.ByteBuffer bytes = java.nio.ByteBuffer.allocate(pixels.length * 4).order(java.nio.ByteOrder.LITTLE_ENDIAN);
-                    bytes.asIntBuffer().put(pixels);
-                    if (number == 0) {
-                        Files.writeString(filmDir.toPath().resolve("size.txt"), image.getWidth() + " " + image.getHeight());
-                    }
-                    Files.write(file.toPath(), bytes.array());
-                } catch (IOException e) {
-                    log("could not write film frame " + file + ": " + e);
-                } finally {
-                    image.close();
-                }
-            });
+        float[] look = pan;
+        Minecraft mc = Minecraft.getInstance();
+        if (look != null && mc.player != null) {
+            double t = Math.min(1.0, (System.nanoTime() - panStart) / (look[4] * 1.0E9));
+            double s = t * t * (3 - 2 * t);
+            float yaw = (float) (look[0] + (look[1] - look[0]) * s);
+            float pitch = (float) (look[2] + (look[3] - look[2]) * s);
+            // turn() exists on every version (setYRot/setXRot don't on 1.16.5); it scales its input by 0.15
+            mc.player.turn((yaw - mc.player.getViewYRot(1.0F)) / 0.15, (pitch - mc.player.getViewXRot(1.0F)) / 0.15);
+            mc.player.yRotO = yaw;
+            mc.player.xRotO = pitch;
         }
+        Film current = film;
+        if (current == null) {
+            return;
+        }
+        long now = System.nanoTime();
+        int copies = 0;
+        while (current.next <= now) {
+            copies++;
+            current.next += FILM_STEP;
+        }
+        if (copies == 0) {
+            return;
+        }
+        int count = copies;
+        Captures.grab(Screens.renderTarget(mc), 1, image -> {
+            try {
+                int[] pixels = Captures.abgr(image);
+                java.nio.ByteBuffer bytes = java.nio.ByteBuffer.allocate(pixels.length * 4).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+                bytes.asIntBuffer().put(pixels);
+                int total = count + current.carry;
+                if (current.queue.offer(new Object[]{bytes.array(), image.getWidth(), image.getHeight(), total})) {
+                    current.carry = 0;
+                } else {
+                    current.carry = total;
+                    current.dropped += count;
+                }
+            } finally {
+                image.close();
+            }
+        });
+    }
+
+    private static long panStart;
+
+    private void pan(float yaw0, float yaw1, float pitch0, float pitch1, float length) {
+        then(0, () -> {
+            panStart = System.nanoTime();
+            pan = new float[]{yaw0, yaw1, pitch0, pitch1, length};
+        });
+    }
+
+    private void still() {
+        then(0, () -> pan = null);
     }
 
     private static void startFilm(Minecraft mc, String name) {
         try {
-            filmDir = new File(mc.gameDirectory, "film/" + name);
-            if (filmDir.exists()) {
-                try (Stream<Path> paths = Files.walk(filmDir.toPath())) {
-                    for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
-                        Files.delete(path);
-                    }
-                }
-            }
-            Files.createDirectories(filmDir.toPath());
-            filmFrame = 0;
-            filmLog = new java.io.PrintWriter(Files.newBufferedWriter(filmDir.toPath().resolve("times.txt")));
-            log("filming " + filmDir);
+            File dir = new File(mc.gameDirectory, "film");
+            Files.createDirectories(dir.toPath());
+            film = new Film(new File(dir, name + ".mp4"), name);
+            log("filming " + name);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
     }
 
     private static void stopFilm() {
-        java.io.PrintWriter log = filmLog;
-        filmLog = null;
-        if (log != null) {
-            log.close();
-            log("filmed " + filmFrame + " frames");
+        Film current = film;
+        film = null;
+        if (current != null) {
+            try {
+                current.queue.put(new Object[0]);
+                current.writer.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            log("filmed " + current.name + ": " + current.written + " frames, " + current.dropped + " dropped");
         }
     }
 
@@ -233,8 +311,13 @@ public final class FirelightSelfTest {
         }
         then(20, () -> {
             if (sodium) {
-                check(ShaderPatches.applied(ShaderPatches.SODIUM_TERRAIN), "Sodium's terrain shader was not patched");
-                check(ShaderPatches.applied(ShaderPatches.SODIUM_TERRAIN + "-raw") || ShaderPatches.applied(ShaderPatches.SODIUM_GLOBALS),
+                log("patches: sodium " + ShaderPatches.applied(ShaderPatches.SODIUM_TERRAIN)
+                        + ", iris " + ShaderPatches.applied(ShaderPatches.IRIS_TERRAIN));
+                check(ShaderPatches.applied(ShaderPatches.SODIUM_TERRAIN) || shaders && ShaderPatches.applied(ShaderPatches.IRIS_TERRAIN),
+                        "Sodium's terrain shader was not patched");
+                // With a pack active from startup Iris compiles its own terrain program, so Sodium's may never get its globals.
+                check(ShaderPatches.applied(ShaderPatches.SODIUM_TERRAIN + "-raw") || ShaderPatches.applied(ShaderPatches.SODIUM_GLOBALS)
+                                || shaders && ShaderPatches.applied(ShaderPatches.IRIS_TERRAIN),
                         "Sodium's terrain shader got no flame data (no globals patch, no raw uniforms)");
             } else if (Backend.RAW_UNIFORMS) {
                 check(ShaderPatches.applied(ShaderPatches.VANILLA_TERRAIN + "-raw"), "the vanilla terrain shader did not get raw uniforms");
@@ -252,7 +335,7 @@ public final class FirelightSelfTest {
             check(snapshot.x()[0] == 0 && snapshot.y()[0] == floor && snapshot.z()[0] == 0, "the torch is in the wrong place");
         });
         then(40, () -> {
-            check(FlickerFrame.count() == (shaders ? 0 : 1), "wrong number of flames sent to the shader: " + FlickerFrame.count());
+            check(FlickerFrame.count() == expectedFlames(shaders), "wrong number of flames sent to the shader: " + FlickerFrame.count());
             if (sodium && !shaders && !ShaderPatches.applied(ShaderPatches.SODIUM_TERRAIN + "-raw")) {
                 check(SodiumHook.ran(), "the Sodium hook never ran");
             }
@@ -267,7 +350,8 @@ public final class FirelightSelfTest {
         sample(mc, "flicker on");
         then(1, () -> {
             flickerRange = range();
-            log(String.format(Locale.ROOT, "floor brightness with flicker: %s", describe()));
+            flickerJitter = jitter();
+            log(String.format(Locale.ROOT, "floor brightness with flicker: %s(jitter %.2f)", describe(), jitter()));
             if (!shaders) {
                 check(flickerRange > 1.5, String.format(Locale.ROOT, "the floor does not flicker (range %.2f)", flickerRange));
             }
@@ -276,12 +360,38 @@ public final class FirelightSelfTest {
         sample(mc, "flicker off");
         then(1, () -> {
             double still = range();
-            log(String.format(Locale.ROOT, "floor brightness without flicker: %s", describe()));
+            log(String.format(Locale.ROOT, "floor brightness without flicker: %s(jitter %.2f)", describe(), jitter()));
             check(shaders || still < flickerRange * 0.4, String.format(Locale.ROOT, "the floor still changes with Firelight off (range %.2f)", still));
             check(FlickerFrame.count() == 0, "flames were still sent with Firelight off");
             config.setEnabled(true);
             config.setStrength(1f);
         });
+
+        if (wickLoaded()) {
+            // Wick lights the floor from the held torch, so that torch must be a flame of its own at the player's eye.
+            then(1, () -> {
+                config.setStrength(2f);
+                run(mc, "item replace entity @p weapon.mainhand with minecraft:torch");
+            });
+            then(40, () -> screenshot(mc, "wick-held-torch"));
+            sample(mc, "holding a torch with Wick");
+            then(1, () -> {
+                FlameTracker.Snapshot flames = FlameTracker.snapshot();
+                int ex = (int) Math.floor(mc.player.getX());
+                int ey = (int) Math.floor(mc.player.getEyeY());
+                int ez = (int) Math.floor(mc.player.getZ());
+                boolean held = false;
+                for (int i = 0; i < flames.count(); i++) {
+                    held |= flames.x()[i] == ex && flames.y()[i] == ey && flames.z()[i] == ez
+                            && flames.kinds()[i] == FlameKind.TORCH && flames.levels()[i] == 14;
+                }
+                log(String.format(Locale.ROOT, "floor brightness holding a torch with Wick: %s(jitter %.2f, %.2f without the held torch)", describe(), jitter(), flickerJitter));
+                check(held, "the torch held with Wick is not a flame at the player's eye (" + flames.count() + " flames)");
+                config.setStrength(1f);
+                run(mc, "item replace entity @p weapon.mainhand with minecraft:air");
+            });
+            then(40, () -> {});
+        }
 
         if (irisLoaded()) {
             then(1, () -> setShaders(!shaders));
@@ -289,7 +399,7 @@ public final class FirelightSelfTest {
                 boolean now = Compat.shaderPackInUse();
                 log("toggled shaders mid-game, shader pack now " + now + ", flames sent " + FlickerFrame.count());
                 check(now != shaders, "toggling Iris shaders did not take effect");
-                check(FlickerFrame.count() == (now ? 0 : 1), "wrong flames sent after toggling shaders: " + FlickerFrame.count());
+                check(FlickerFrame.count() == expectedFlames(now), "wrong flames sent after toggling shaders: " + FlickerFrame.count());
                 screenshot(mc, "shaders-toggled");
                 config.setStrength(2f);
             });
@@ -298,13 +408,15 @@ public final class FirelightSelfTest {
                 log(String.format(Locale.ROOT, "floor brightness after toggling shaders: %s", describe()));
                 if (!Compat.shaderPackInUse()) {
                     check(range() > 1.5, String.format(Locale.ROOT, "the floor does not flicker after turning shaders off (range %.2f)", range()));
+                } else if (ShaderPatches.applied(ShaderPatches.IRIS_TERRAIN)) {
+                    check(range() > 1.5, String.format(Locale.ROOT, "the floor does not flicker under the shader pack (range %.2f)", range()));
                 }
                 config.setStrength(1f);
                 setShaders(shaders);
             });
             then(120, () -> {
                 check(Compat.shaderPackInUse() == shaders, "toggling Iris shaders back did not take effect");
-                check(FlickerFrame.count() == (shaders ? 0 : 1), "wrong flames sent after toggling shaders back: " + FlickerFrame.count());
+                check(FlickerFrame.count() == expectedFlames(shaders), "wrong flames sent after toggling shaders back: " + FlickerFrame.count());
             });
         }
         then(5, () -> run(mc, "summon minecraft:armor_stand 1.5 " + floor + " 1.5"));
@@ -318,7 +430,7 @@ public final class FirelightSelfTest {
         }
         then(1, () -> {
             log("armor stand block light values: " + entityLights);
-            check(shaders ? entityLights.size() == 1 : entityLights.size() >= 3, "wrong armor stand light by the torch: " + entityLights);
+            check(entityLights.size() >= 3, "the armor stand does not flicker by the torch: " + entityLights);
             entityLights.clear();
             config.setEntities(false);
         });
@@ -347,7 +459,7 @@ public final class FirelightSelfTest {
         }
         then(1, () -> {
             log("chest block light values: " + entityLights);
-            check(entityLights.isEmpty() || (shaders ? entityLights.size() == 1 : entityLights.size() >= 3), "wrong chest light by the torch: " + entityLights);
+            check(entityLights.isEmpty() || entityLights.size() >= 3, "the chest does not flicker by the torch: " + entityLights);
             config.setTorches(false);
         });
         within(20, () -> FlameTracker.snapshot().count() == 0, () -> {
@@ -414,33 +526,69 @@ public final class FirelightSelfTest {
         int f = ServerCompat.FLOOR;
         then(10, () -> {
             run(mc, "fill -16 " + (f - 1) + " -16 16 " + (f + 7) + " 16 minecraft:air");
-            run(mc, "fill -14 " + (f - 1) + " -14 14 " + (f + 6) + " 14 minecraft:stone_bricks hollow");
-            run(mc, "fill -13 " + (f - 1) + " -13 13 " + (f - 1) + " 13 minecraft:spruce_planks");
-            run(mc, "fill -13 " + (f + 6) + " -13 13 " + (f + 6) + " 13 minecraft:dark_oak_planks");
-            run(mc, "fill -13 " + f + " -13 13 " + f + " -13 minecraft:mossy_stone_bricks");
-            run(mc, "setblock -6 " + (f + 2) + " -13 minecraft:wall_torch[facing=south]");
-            run(mc, "setblock 6 " + (f + 2) + " -13 minecraft:wall_torch[facing=south]");
-            run(mc, "setblock 0 " + f + " -6 minecraft:campfire[lit=true]");
-            run(mc, "setblock 7 " + f + " -1 minecraft:barrel[facing=up]");
-            run(mc, "setblock 7 " + (f + 1) + " -1 minecraft:candle[lit=true,candles=4]");
-            run(mc, "setblock -7 " + f + " -2 minecraft:lantern");
-            run(mc, "setblock -1 " + f + " -13 minecraft:bookshelf");
-            run(mc, "setblock -1 " + (f + 1) + " -13 minecraft:bookshelf");
-            run(mc, "setblock 1 " + f + " -13 minecraft:crafting_table");
-            run(mc, "summon minecraft:villager 2.5 " + f + " -4.5 {NoAI:1b,Rotation:[20f,0f]}");
+            run(mc, "fill -9 " + (f - 1) + " -9 9 " + (f + 5) + " 9 minecraft:stone_bricks hollow");
+            run(mc, "fill -8 " + (f - 1) + " -8 8 " + (f - 1) + " 8 minecraft:spruce_planks");
+            run(mc, "fill -8 " + (f + 5) + " -8 8 " + (f + 5) + " 8 minecraft:dark_oak_planks");
+            run(mc, "fill -8 " + f + " -8 8 " + f + " -8 minecraft:mossy_stone_bricks");
+            run(mc, "setblock -4 " + (f + 2) + " -8 minecraft:wall_torch[facing=south]");
+            run(mc, "setblock 4 " + (f + 2) + " -8 minecraft:wall_torch[facing=south]");
+            run(mc, "setblock -8 " + (f + 2) + " 3 minecraft:wall_torch[facing=east]");
+            run(mc, "setblock 8 " + (f + 2) + " 3 minecraft:wall_torch[facing=west]");
+            run(mc, "setblock -1 " + f + " -7 minecraft:bookshelf");
+            run(mc, "setblock -1 " + (f + 1) + " -7 minecraft:bookshelf");
+            run(mc, "setblock 1 " + f + " -7 minecraft:crafting_table");
+            run(mc, "setblock 0 " + f + " -4 minecraft:campfire[lit=true]");
+            run(mc, "summon minecraft:villager 2.5 " + f + " -2.5 {NoAI:1b,Rotation:[150f,0f]}");
+            run(mc, "setblock -7 " + f + " -6 minecraft:furnace[facing=east,lit=true]");
+            run(mc, "setblock -7 " + (f + 1) + " -6 minecraft:furnace[facing=east,lit=true]");
+            run(mc, "setblock -3 " + (f + 4) + " -5 minecraft:lantern[hanging=true]");
+            run(mc, "setblock -5 " + f + " 1 minecraft:lantern");
+            run(mc, "summon minecraft:cat -4.0 " + f + " 3.0 {NoAI:1b,Rotation:[120f,0f]}");
+            run(mc, "setblock 6 " + f + " 0 minecraft:barrel[facing=up]");
+            run(mc, "setblock 6 " + (f + 1) + " 0 minecraft:candle[lit=true,candles=4]");
+            run(mc, "setblock 5 " + f + " 1 minecraft:candle_cake[lit=true]");
+            run(mc, "setblock 7 " + f + " 1 minecraft:candle[lit=true,candles=3]");
+            run(mc, "summon minecraft:armor_stand 6.5 " + f + " -5.5 {Rotation:[220f,0f]}");
         });
         then(60, () -> {
             run(mc, "kill @e[type=minecraft:item]");
-            run(mc, "tp @p 0.5 " + (f + 1.4) + " 4.5 180 16");
+            run(mc, "tp @p 0.5 " + f + " 7.5 180 12");
             Ui.fov(mc, 70);
             config.setEnabled(false);
         });
-        then(40, () -> startFilm(mc, "vanilla"));
+        pan(180, 180, 12, 12, 1);
+        then(40, () -> startFilm(mc, "1-vanilla"));
         seconds(4, FirelightSelfTest::stopFilm);
         then(5, () -> config.setEnabled(true));
-        then(20, () -> startFilm(mc, "firelight"));
-        seconds(10, FirelightSelfTest::stopFilm);
+        then(20, () -> startFilm(mc, "2-firelight"));
+        seconds(8, FirelightSelfTest::stopFilm);
+        pan(150, 210, 14, 10, 9);
+        then(0, () -> startFilm(mc, "3-pan"));
+        seconds(9, FirelightSelfTest::stopFilm);
+        shot(mc, "4-campfire", -1.5, f, -0.5, 205, 235, 18, 14, 7);
+        shot(mc, "5-candles", 3.5, f, 3.5, 215, 235, 16, 12, 6);
+        shot(mc, "6-lantern", -1.5, f, 4.5, 140, 120, 18, 16, 6);
+        shot(mc, "7-furnace", -3.5, f, -2.5, 145, 125, 10, 8, 6);
+        then(0, () -> run(mc, "tp @p 0.5 " + f + " 7.5 180 12"));
+        pan(180, 180, 12, 12, 1);
+        then(30, () -> config.setStrength(3f));
+        then(0, () -> startFilm(mc, "8-strength"));
+        seconds(6, FirelightSelfTest::stopFilm);
+        then(0, () -> config.setStrength(1f));
+        then(20, () -> startFilm(mc, "9-end"));
+        seconds(5, FirelightSelfTest::stopFilm);
+        still();
         then(5, () -> hideHud = false);
+    }
+
+    private void shot(Minecraft mc, String name, double x, int y, double z, float yaw0, float yaw1, float pitch0, float pitch1, float length) {
+        then(0, () -> run(mc, String.format(Locale.ROOT, "tp @p %.2f %d %.2f %.1f %.1f", x, y, z, yaw0, pitch0)));
+        pan(yaw0, yaw0, pitch0, pitch0, 1);
+        then(30, () -> {
+        });
+        pan(yaw0, yaw1, pitch0, pitch1, length);
+        then(0, () -> startFilm(mc, name));
+        seconds(length, FirelightSelfTest::stopFilm);
     }
 
     private int perfFrames;
@@ -526,6 +674,15 @@ public final class FirelightSelfTest {
         }
     }
 
+    // Mean change between consecutive frames: flicker keeps moving, a one-time step (Wick rebuilding sections) barely counts.
+    private double jitter() {
+        double sum = 0;
+        for (int i = 1; i < samples.size(); i++) {
+            sum += Math.abs(samples.get(i) - samples.get(i - 1));
+        }
+        return samples.size() < 2 ? 0 : sum / (samples.size() - 1);
+    }
+
     private double range() {
         double min = Double.MAX_VALUE;
         double max = -Double.MAX_VALUE;
@@ -580,6 +737,20 @@ public final class FirelightSelfTest {
             }
         }
         return null;
+    }
+
+    private static boolean wickLoaded() {
+        try {
+            Class.forName("dev.wick.client.WickClient", false, FirelightSelfTest.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException | LinkageError e) {
+            return false;
+        }
+    }
+
+    // Under a shader pack flames only reach the GPU once the pack's terrain shader has been patched.
+    private static int expectedFlames(boolean shaders) {
+        return shaders && !ShaderPatches.applied(ShaderPatches.IRIS_TERRAIN) ? 0 : 1;
     }
 
     private static boolean irisLoaded() {

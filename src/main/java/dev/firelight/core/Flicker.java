@@ -92,6 +92,8 @@ public final class Flicker {
         if (weights == 0f) {
             return 1f;
         }
-        return Math.max(0f, 1f + sum / weights * Math.min(1f, best / blockLevel));
+        // Light well above the flame's own reach comes from another source (a brighter lamp, Wick's held light), so it stays steady.
+        float share = Math.min(1f, Math.max(0f, (best + 3.5f - blockLevel) * 0.5f));
+        return Math.max(0f, 1f + sum / weights * Math.min(1f, best / blockLevel) * share);
     }
 }
