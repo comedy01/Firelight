@@ -177,7 +177,6 @@ if (sodiumVersion != null && (project.hasProperty("sodium") || project.hasProper
 	}
 }
 
-// -Pwick=<jar> runs a Fabric 26.x client alongside a Wick build, to check the two light mods together.
 if (fabric && !remap && project.hasProperty("wick")) {
 	dependencies {
 		runtimeOnly files(project.property("wick"))

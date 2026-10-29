@@ -18,7 +18,6 @@ public final class Compat {
             try {
                 Class<?> api = Class.forName("net.irisshaders.iris.api.v0.IrisApi");
                 Object irisApi = api.getMethod("getInstance").invoke(null);
-                // Asked several times a frame, so the call is bound once rather than reflected every time.
                 shaderPackInUse = MethodHandles.publicLookup().unreflect(api.getMethod("isShaderPackInUse"))
                         .bindTo(irisApi).asType(MethodType.methodType(boolean.class));
             } catch (ReflectiveOperationException | LinkageError | RuntimeException e) {

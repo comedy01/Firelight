@@ -178,7 +178,6 @@ public final class FirelightSelfTest {
             double s = t * t * (3 - 2 * t);
             float yaw = (float) (look[0] + (look[1] - look[0]) * s);
             float pitch = (float) (look[2] + (look[3] - look[2]) * s);
-            // turn() exists on every version (setYRot/setXRot don't on 1.16.5); it scales its input by 0.15
             mc.player.turn((yaw - mc.player.getViewYRot(1.0F)) / 0.15, (pitch - mc.player.getViewXRot(1.0F)) / 0.15);
             mc.player.yRotO = yaw;
             mc.player.xRotO = pitch;
@@ -315,7 +314,6 @@ public final class FirelightSelfTest {
                         + ", iris " + ShaderPatches.applied(ShaderPatches.IRIS_TERRAIN));
                 check(ShaderPatches.applied(ShaderPatches.SODIUM_TERRAIN) || shaders && ShaderPatches.applied(ShaderPatches.IRIS_TERRAIN),
                         "Sodium's terrain shader was not patched");
-                // With a pack active from startup Iris compiles its own terrain program, so Sodium's may never get its globals.
                 check(ShaderPatches.applied(ShaderPatches.SODIUM_TERRAIN + "-raw") || ShaderPatches.applied(ShaderPatches.SODIUM_GLOBALS)
                                 || shaders && ShaderPatches.applied(ShaderPatches.IRIS_TERRAIN),
                         "Sodium's terrain shader got no flame data (no globals patch, no raw uniforms)");
@@ -368,7 +366,6 @@ public final class FirelightSelfTest {
         });
 
         if (wickLoaded()) {
-            // Wick lights the floor from the held torch, so that torch must be a flame of its own at the player's eye.
             then(1, () -> {
                 config.setStrength(2f);
                 run(mc, "item replace entity @p weapon.mainhand with minecraft:torch");
@@ -674,7 +671,6 @@ public final class FirelightSelfTest {
         }
     }
 
-    // Mean change between consecutive frames: flicker keeps moving, a one-time step (Wick rebuilding sections) barely counts.
     private double jitter() {
         double sum = 0;
         for (int i = 1; i < samples.size(); i++) {
@@ -748,7 +744,6 @@ public final class FirelightSelfTest {
         }
     }
 
-    // Under a shader pack flames only reach the GPU once the pack's terrain shader has been patched.
     private static int expectedFlames(boolean shaders) {
         return shaders && !ShaderPatches.applied(ShaderPatches.IRIS_TERRAIN) ? 0 : 1;
     }

@@ -8,7 +8,6 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-// Iris binds its own programs, so the raw flame uniforms are uploaded whenever any program is used.
 @Mixin(value = GlStateManager.class, remap = false)
 abstract class ProgramUseMixin {
     @Inject(method = "_glUseProgram", at = @At("TAIL"), remap = false)

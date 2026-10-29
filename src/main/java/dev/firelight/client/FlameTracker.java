@@ -26,7 +26,6 @@ public final class FlameTracker {
 
     private static final Long2ObjectOpenHashMap<Entry> CACHE = new Long2ObjectOpenHashMap<>();
     private static ClientLevel cachedLevel;
-    // Only touched from the client tick, so one set of candidate buffers serves every scan.
     private static final Candidates FOUND = new Candidates();
 
     private static volatile Snapshot snapshot = Snapshot.EMPTY;
@@ -114,8 +113,6 @@ public final class FlameTracker {
         snapshot = found.nearest(Flicker.MAX_SOURCES);
     }
 
-    // A dynamic light mod (Wick) lights the blocks around a held torch. Without a flame of its own that light would
-    // pulse with whichever placed torch is nearest, so the held torch flickers by itself, keyed to the entity.
     private static void held(ClientLevel level, FirelightConfig config, int cx, int cy, int cz, Candidates found) {
         for (Entity entity : level.entitiesForRendering()) {
             if (!(entity instanceof LivingEntity)) {

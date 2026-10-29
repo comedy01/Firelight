@@ -13,8 +13,6 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class Flames {
-    // Kind and group only depend on the block state, and every section scan asks for all 4096 of them, so each
-    // state's answer is kept: 0 for no flame, else (kind ordinal + 1) | group << 4.
     private static final ConcurrentHashMap<BlockState, Integer> CODES = new ConcurrentHashMap<>();
 
     private Flames() {

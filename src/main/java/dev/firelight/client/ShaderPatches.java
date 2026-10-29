@@ -56,11 +56,8 @@ public final class ShaderPatches {
     private static final String HALF_TEXEL = "#define FIRELIGHT_HALF_TEXEL\n";
 
     private static final Pattern IRIS_INIT = Pattern.compile("_vert_init\\s*\\(\\s*\\)\\s*;");
-    // Iris 1.11.7 keeps the region offset in a uniform block, older versions use Sodium's own uniform.
     private static final List<String> IRIS_OFFSETS = List.of("iris_RegionOffset", "u_RegionOffset");
-    // Iris 1.6 reads the chunk offset straight from Sodium's uniform array.
     private static final List<String> IRIS_TRANSLATIONS = List.of("_get_draw_translation(_draw_id)", "Chunks[_draw_id].offset.xyz");
-    // Iris 1.7.2 and older keep the light coordinate as an ivec2, so the scale goes through a float and back.
     private static final String IRIS_SCALE = "\n{ vec3 fl_p = _vert_position + %s + %s; float fl_l = float(_vert_tex_light_coord.x);"
             + " _vert_tex_light_coord.x = %s(fl_l * firelight_factor(fl_p, fl_l / 16.0)); }\n";
     private static final Set<String> IRIS_WARNED = ConcurrentHashMap.newKeySet();
@@ -145,7 +142,6 @@ public final class ShaderPatches {
         return version + RAW + code() + "\n" + body;
     }
 
-    // Iris replaces Sodium's terrain shader with the pack's own, so the light coordinate is scaled after every _vert_init() call.
     public static String iris(String name, String vertex) {
         if (vertex == null || vertex.contains("FIRELIGHT_IRIS")) {
             return vertex;
@@ -161,7 +157,6 @@ public final class ShaderPatches {
                 String scale = IRIS_SCALE.formatted(offset, translation, type);
                 Matcher call = IRIS_INIT.matcher(vertex);
                 while (call.find()) {
-                    // Only calls get the scale, not a forward declaration.
                     if (vertex.substring(0, call.start()).stripTrailing().endsWith("void")) {
                         continue;
                     }

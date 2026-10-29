@@ -9,7 +9,6 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-// Applied after other light mods (Wick) so the flicker sees their raised light and leaves it steady.
 @Mixin(value = EntityRenderDispatcher.class, priority = 1100)
 abstract class EntityRendererMixin {
     @Inject(method = "getPackedLightCoords", at = @At("RETURN"), cancellable = true)

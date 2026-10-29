@@ -27,7 +27,6 @@ float firelight_factor(vec3 pos, float blockLevel) {
     if (weights == 0.0) {
         return 1.0;
     }
-    // Light well above the flame's own reach comes from another source (a brighter lamp, Wick's held light), so it stays steady.
     float share = clamp((best + 3.5 - blockLevel) * 0.5, 0.0, 1.0);
     return max(0.0, 1.0 + sum / weights * min(1.0, best / blockLevel) * share);
 }

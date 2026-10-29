@@ -9,7 +9,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.Map;
 
-// Iris 1.6 and older, before the move to the net.irisshaders package.
 @Pseudo
 @Mixin(targets = "net.coderbot.iris.pipeline.transform.TransformPatcher", remap = false)
 abstract class LegacyTransformPatcherMixin {

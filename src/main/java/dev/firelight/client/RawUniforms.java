@@ -31,7 +31,6 @@ public final class RawUniforms {
         any = true;
     }
 
-    // Program ids are reused after a delete, so cached locations are dropped whenever a program is created, linked or deleted.
     public static void forget(int program) {
         if (any) {
             PROGRAMS.remove(program);
@@ -74,7 +73,6 @@ public final class RawUniforms {
                 FlickerFrame.update(Cameras.position(Minecraft.getInstance()));
                 FloatBuffer all = FlickerFrame.bytes().asFloatBuffer();
                 info = all.duplicate().position(0).limit(4).slice();
-                // The shader stops at FirelightInfo.z sources, so the unused tail of the array is never sent.
                 sources = all.duplicate().position(4).limit(4 + FlickerFrame.count() * 4).slice();
             }
             GL20.glUniform4fv(entry[0], info);
@@ -88,7 +86,6 @@ public final class RawUniforms {
         }
     }
 
-    // A pack may declare its own uniforms with these names, so only the exact vec4 and vec4[64] declarations are fed.
     private static boolean matches(int program) {
         int count = GL20.glGetProgrami(program, GL20.GL_ACTIVE_UNIFORMS);
         int found = 0;

@@ -36,8 +36,6 @@ public final class FlickerFrame {
         frame[1] = strength;
         frame[3] = Flicker.MARK;
         FlameTracker.Snapshot snapshot = FlameTracker.snapshot();
-        // Under a shader pack the GPU only gets flames once the pack's terrain program has been patched; entities
-        // and block entities keep flickering either way (their light is set on the CPU).
         int count = FirelightClient.active() && camera != null ? snapshot.count() : 0;
         frame[2] = count;
         sent = Compat.shaderPackInUse() && !ShaderPatches.applied(ShaderPatches.IRIS_TERRAIN) ? 0 : count;
